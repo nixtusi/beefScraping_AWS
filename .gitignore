@@ -243,3 +243,5 @@ $RECYCLE.BIN/
 
 # End of https://www.gitignore.io/api/osx,linux,python,windows,pycharm,visualstudiocodeheadless-chromium
 headless-chromium.zip
+headless-chromium
+headless-chromium.zip
