@@ -26,18 +26,13 @@ def lambda_handler(event, context):
     password = data.get("password")
     api_key = data.get("api_key")
 
-    print(f"🔑 API key received: {api_key}")
-    print(f"👤 User number: {number}")
-
     if api_key != "mysecretkey123":
         return {"statusCode": 403, "body": "Invalid API key."}
 
-    # バイナリ保存先
     chromedriver_path = "/tmp/chromedriver"
     headless_chromium_path = "/tmp/headless-chromium"
-
-    # S3からダウンロード
     s3 = boto3.client("s3")
+
     try:
         print("⬇️ Downloading Chrome binaries...")
         s3.download_file("my-kobe-univ-lambda", "chromedriver", chromedriver_path)
@@ -47,7 +42,6 @@ def lambda_handler(event, context):
     except Exception as e:
         return {"statusCode": 500, "body": f"Error downloading browser binaries: {str(e)}"}
 
-    # Chrome オプション
     options = webdriver.ChromeOptions()
     options.binary_location = headless_chromium_path
     options.add_argument("--headless")
@@ -74,45 +68,49 @@ def lambda_handler(event, context):
         login_url = "/saml/loginyu?disco=true"
         task_url = "/lms/task"
 
-        print("🌐 Accessing login page...")
         driver.get(base_url + login_url)
-
-        print("🔐 Waiting for login form...")
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "username")))
         driver.find_element(By.ID, "username").send_keys(number)
         driver.find_element(By.ID, "password").send_keys(password)
         driver.find_element(By.ID, "kc-login").click()
 
         time.sleep(2)
-
-        print("📄 Opening task page...")
         driver.get(base_url + task_url)
         time.sleep(2)
 
         soup = bs4(driver.page_source, "html.parser")
-        courses = soup.find_all("div", class_="course")
-        deadlines = soup.find_all("span", class_="deadline")
+        blocks = soup.find_all("div", class_="sortTaskBlock")
 
-        for c, d in zip(courses, deadlines):
-            tasks.append({
-                "course": c.get_text(strip=True),
-                "deadline": d.get_text(strip=True)
-            })
+        for block in blocks:
+            try:
+                course = block.find("div", class_="tasklist-course").get_text(strip=True)
+                content = block.find("div", class_="tasklist-contents").get_text(strip=True)
+                title = block.find("div", class_="tasklist-title").get_text(strip=True)
+                deadline = block.find("span", class_="deadline").get_text(strip=True)
+                link_tag = block.find("div", class_="tasklist-title").find("a")
+                url = base_url + link_tag["href"] if link_tag else ""
 
-        print(f"✅ Retrieved {len(tasks)} tasks")
+                tasks.append({
+                    "course": course,
+                    "content": content,
+                    "title": title,
+                    "deadline": deadline,
+                    "url": url
+                })
+            except Exception as e:
+                print(f"⚠️ Skipping a task block due to error: {e}")
+
         return {
             "statusCode": 200,
             "body": json.dumps({"tasks": tasks}, ensure_ascii=False)
         }
 
     except Exception as e:
-        print(f"💥 Scraping error: {str(e)}")
         return {"statusCode": 500, "body": f"Error during scraping: {str(e)}"}
 
     finally:
         if 'driver' in locals():
             try:
                 driver.quit()
-                print("🛑 Chrome closed")
             except Exception as quit_error:
                 print(f"⚠️ Error during driver.quit(): {quit_error}")
